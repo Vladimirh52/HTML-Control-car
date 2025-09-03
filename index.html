@@ -152,7 +152,7 @@
             <div>
                 <input type="text" id="broker" value="wss://broker.emqx.io" placeholder="MQTT брокер">
 
-                <input type="text" id="port" value="8084" placeholder="Порт">
+                
             </div>
             <div>
                 <input type="text" id="topic" value="car/control" placeholder="Топик">
@@ -194,6 +194,7 @@
             Последняя команда: <span id="last-command">-</span>
         </div>
     </div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
 <script>
     // Глобальные переменные
     let isConnected = false;
@@ -204,7 +205,7 @@
 
     // Инициализация приложения
     function initApp() {
-        console.log("Paho объект:", Paho);
+        console.log("MQTT библиотека загружена");
         
         // Инициализация элементов
         joystickHandle = document.getElementById('joystick-handle');
@@ -227,35 +228,47 @@
         updateConnectionStatus(false);
         
         // Устанавливаем рабочие настройки по умолчанию
-        document.getElementById('broker').value = 'broker.emqx.io';
-        document.getElementById('port').value = '8084';
+        document.getElementById('broker').value = 'wss://broker.emqx.io:8084/mqtt';
         document.getElementById('topic').value = 'car/control';
+        document.getElementById('port').style.display = 'none';
     }
 
     // Глобальные функции
     window.connect = function() {
         try {
-            const broker = document.getElementById('broker').value;
-            const port = parseInt(document.getElementById('port').value);
+            const brokerUrl = document.getElementById('broker').value;
             const topic = document.getElementById('topic').value;
             
-            console.log("Подключаемся к:", broker, "порт:", port);
+            console.log("Подключаемся к:", brokerUrl);
             
-            // Создаем MQTT клиент - ПРАВИЛЬНЫЙ формат
-            client = new Paho.Client(broker, Number(port), "web_client_" + Math.random().toString(16).substr(2, 8));
+            // Подключаемся с помощью MQTT.js
+            client = mqtt.connect(brokerUrl, {
+                clientId: 'web_client_' + Math.random().toString(16).substr(2, 8),
+                reconnectPeriod: 0
+            });
             
-            client.onConnectionLost = onConnectionLost;
-            client.onMessageArrived = onMessageArrived;
+            client.on('connect', function() {
+                console.log("Connected to MQTT broker");
+                isConnected = true;
+                updateConnectionStatus(true);
+                client.subscribe(topic);
+                alert("Успешно подключено! Можно управлять машинкой.");
+            });
             
-            // Определяем использование SSL
-            const useSSL = port === 8884 || port === 8084;
+            client.on('error', function(error) {
+                console.error("Connection error:", error);
+                alert("Ошибка подключения: " + error.message);
+            });
             
-            client.connect({
-                onSuccess: onConnect,
-                onFailure: onFailure,
-                useSSL: useSSL,
-                timeout: 10,
-                reconnect: false
+            client.on('message', function(receivedTopic, message) {
+                if (receivedTopic === topic) {
+                    console.log("Message received:", message.toString());
+                }
+            });
+            
+            client.on('close', function() {
+                isConnected = false;
+                updateConnectionStatus(false);
             });
             
         } catch (error) {
@@ -265,8 +278,8 @@
     }
 
     window.disconnect = function() {
-        if (client && client.isConnected()) {
-            client.disconnect();
+        if (client && client.connected) {
+            client.end();
         }
         isConnected = false;
         updateConnectionStatus(false);
@@ -277,42 +290,6 @@
         sendCommand("STOP");
         resetJoystick();
         updateValues(0, 0);
-    }
-
-    function onConnect() {
-        console.log("Connected to MQTT broker");
-        isConnected = true;
-        updateConnectionStatus(true);
-        
-        // Подписываемся на топик
-        const topic = document.getElementById('topic').value;
-        client.subscribe(topic);
-        console.log("Subscribed to topic:", topic);
-        
-        alert("Успешно подключено! Можно управлять машинкой.");
-    }
-
-    function onFailure(message) {
-        console.error("Connection failed:", message);
-        
-        // Предлагаем альтернативные настройки
-        if (confirm("Ошибка подключения! Попробовать другой брокер?")) {
-            document.getElementById('broker').value = 'test.mosquitto.org';
-            document.getElementById('port').value = '8081';
-            alert("Переключено на test.mosquitto.org:8081\nНажмите 'Подключиться' еще раз.");
-        }
-    }
-
-    function onConnectionLost(responseObject) {
-        if (responseObject.errorCode !== 0) {
-            console.log("Connection lost:", responseObject.errorMessage);
-            isConnected = false;
-            updateConnectionStatus(false);
-        }
-    }
-
-    function onMessageArrived(message) {
-        console.log("Message received:", message.payloadString);
     }
 
     function updateConnectionStatus(connected) {
@@ -339,12 +316,7 @@
         document.getElementById('last-command').textContent = cmd;
         
         try {
-            const message = new Paho.Message(cmd);
-            message.destinationName = topic;
-            message.qos = 0;
-            message.retained = false;
-            
-            client.send(message);
+            client.publish(topic, cmd);
             console.log("Команда отправлена успешно");
         } catch (error) {
             console.error("Ошибка отправки:", error);
