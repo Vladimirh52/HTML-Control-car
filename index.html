@@ -233,52 +233,50 @@
 
     // Глобальные функции
     window.connect = function() {
-        try {
-            let broker = document.getElementById('broker').value;
-            let port = parseInt(document.getElementById('port').value);
-            const topic = document.getElementById('topic').value;
-            
-            // Автоматическое исправление адреса для WebSocket
-            if (!broker.startsWith('ws://') && !broker.startsWith('wss://')) {
-                if (port === 8884 || port === 8084) {
-                    broker = 'wss://' + broker;
-                } else {
-                    broker = 'ws://' + broker;
-                }
-                document.getElementById('broker').value = broker;
-            }
-            
-            console.log("Подключаемся к:", broker, "порт:", port);
-            
-            // Извлекаем хост из WebSocket URL
-            const host = broker.replace(/^wss?:\/\//, '').split('/')[0];
-            
-            // Создаем MQTT клиент
-            client = new Paho.Client(host, port, "web_client_" + Math.random().toString(16).substr(2, 8));
-            
-            client.onConnectionLost = onConnectionLost;
-            client.onMessageArrived = onMessageArrived;
-            
-            // Определяем использование SSL
-            const useSSL = broker.startsWith('wss://');
-            
-            client.connect({
-                onSuccess: onConnect,
-                onFailure: onFailure,
-                useSSL: useSSL,
-                timeout: 10,
-                reconnect: false,
-                onSuccess: onConnect,
-                onFailure: onFailure,
-                useSSL: useSSL,
-                hosts: host,
-                ports: port
-            });
-        } catch (error) {
-            console.error("Ошибка подключения:", error);
-            alert("Ошибка: " + error.message + "\n\nПопробуйте: wss://broker.emqx.io:8084");
+    try {
+        let broker = document.getElementById('broker').value;
+        let port = parseInt(document.getElementById('port').value);
+        const topic = document.getElementById('topic').value;
+        
+        // Убедимся, что это WebSocket URL
+        if (!broker.startsWith('ws://') && !broker.startsWith('wss://')) {
+            broker = 'wss://' + broker;
+            document.getElementById('broker').value = broker;
         }
+        
+        console.log("Подключаемся к:", broker, "порт:", port);
+        
+        // Для WebSocket используем только hostname (без ws://)
+        const host = broker.replace(/^wss?:\/\//, '').split(':')[0].split('/')[0];
+        
+        console.log("Host:", host);
+        
+        // Создаем MQTT клиент - УБИРАЕМ ДУБЛИРОВАНИЕ ПАРАМЕТРОВ
+        client = new Paho.Client(host, port, "web_client_" + Math.random().toString(16).substr(2, 8));
+        
+        client.onConnectionLost = onConnectionLost;
+        client.onMessageArrived = onMessageArrived;
+        
+        // Определяем использование SSL
+        const useSSL = broker.startsWith('wss://');
+        
+        // ПРАВИЛЬНЫЕ параметры подключения
+        const connectOptions = {
+            onSuccess: onConnect,
+            onFailure: onFailure,
+            useSSL: useSSL,
+            timeout: 10,
+            reconnect: false
+        };
+        
+        // Убираем лишние параметры hosts и ports
+        client.connect(connectOptions);
+        
+    } catch (error) {
+        console.error("Ошибка подключения:", error);
+        alert("Ошибка: " + error.message);
     }
+}
 
     window.disconnect = function() {
         if (client && client.isConnected()) {
