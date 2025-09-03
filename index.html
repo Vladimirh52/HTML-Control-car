@@ -226,57 +226,43 @@
         resetJoystick();
         updateConnectionStatus(false);
         
-        // Автоматически подключаемся к надежному брокеру
-        document.getElementById('broker').value = 'wss://broker.emqx.io';
+        // Устанавливаем рабочие настройки по умолчанию
+        document.getElementById('broker').value = 'broker.emqx.io';
         document.getElementById('port').value = '8084';
+        document.getElementById('topic').value = 'car/control';
     }
 
     // Глобальные функции
     window.connect = function() {
-    try {
-        let broker = document.getElementById('broker').value;
-        let port = parseInt(document.getElementById('port').value);
-        const topic = document.getElementById('topic').value;
-        
-        // Убедимся, что это WebSocket URL
-        if (!broker.startsWith('ws://') && !broker.startsWith('wss://')) {
-            broker = 'wss://' + broker;
-            document.getElementById('broker').value = broker;
+        try {
+            const broker = document.getElementById('broker').value;
+            const port = parseInt(document.getElementById('port').value);
+            const topic = document.getElementById('topic').value;
+            
+            console.log("Подключаемся к:", broker, "порт:", port);
+            
+            // Создаем MQTT клиент - ПРАВИЛЬНЫЙ формат
+            client = new Paho.Client(broker, Number(port), "web_client_" + Math.random().toString(16).substr(2, 8));
+            
+            client.onConnectionLost = onConnectionLost;
+            client.onMessageArrived = onMessageArrived;
+            
+            // Определяем использование SSL
+            const useSSL = port === 8884 || port === 8084;
+            
+            client.connect({
+                onSuccess: onConnect,
+                onFailure: onFailure,
+                useSSL: useSSL,
+                timeout: 10,
+                reconnect: false
+            });
+            
+        } catch (error) {
+            console.error("Ошибка подключения:", error);
+            alert("Ошибка: " + error.message);
         }
-        
-        console.log("Подключаемся к:", broker, "порт:", port);
-        
-        // Для WebSocket используем только hostname (без ws://)
-        const host = broker.replace(/^wss?:\/\//, '').split(':')[0].split('/')[0];
-        
-        console.log("Host:", host);
-        
-        // Создаем MQTT клиент - УБИРАЕМ ДУБЛИРОВАНИЕ ПАРАМЕТРОВ
-        client = new Paho.Client(host, port, "web_client_" + Math.random().toString(16).substr(2, 8));
-        
-        client.onConnectionLost = onConnectionLost;
-        client.onMessageArrived = onMessageArrived;
-        
-        // Определяем использование SSL
-        const useSSL = broker.startsWith('wss://');
-        
-        // ПРАВИЛЬНЫЕ параметры подключения
-        const connectOptions = {
-            onSuccess: onConnect,
-            onFailure: onFailure,
-            useSSL: useSSL,
-            timeout: 10,
-            reconnect: false
-        };
-        
-        // Убираем лишние параметры hosts и ports
-        client.connect(connectOptions);
-        
-    } catch (error) {
-        console.error("Ошибка подключения:", error);
-        alert("Ошибка: " + error.message);
     }
-}
 
     window.disconnect = function() {
         if (client && client.isConnected()) {
@@ -310,10 +296,10 @@
         console.error("Connection failed:", message);
         
         // Предлагаем альтернативные настройки
-        if (message.errorCode !== 0) {
-            document.getElementById('broker').value = 'wss://broker.emqx.io';
-            document.getElementById('port').value = '8084';
-            alert("Ошибка подключения! Автоматически переключено на broker.emqx.io:8084\n\nНажмите 'Подключиться' еще раз.");
+        if (confirm("Ошибка подключения! Попробовать другой брокер?")) {
+            document.getElementById('broker').value = 'test.mosquitto.org';
+            document.getElementById('port').value = '8081';
+            alert("Переключено на test.mosquitto.org:8081\nНажмите 'Подключиться' еще раз.");
         }
     }
 
