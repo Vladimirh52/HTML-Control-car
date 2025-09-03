@@ -193,247 +193,275 @@
             Последняя команда: <span id="last-command">-</span>
         </div>
     </div>
+<script>
+    // Глобальные переменные
+    let isConnected = false;
+    let isDragging = false;
+    let lastCommand = "";
+    let client = null;
+    let joystickHandle, joystickBase, maxDistance;
 
-    <script>
-        // Глобальные переменные
-        let isConnected = false;
-        let isDragging = false;
-        let lastCommand = "";
-        let client = null;
-        let joystickHandle, joystickBase, maxDistance;
-
-        // Проверка загрузки библиотеки
-        console.log("Paho object:", typeof Paho);
+    // Инициализация приложения
+    function initApp() {
+        console.log("Paho объект:", Paho);
         
-        // Инициализация приложения
-        function initApp() {
-            console.log("Paho объект:", Paho);
-            
-            // Инициализация элементов
-            joystickHandle = document.getElementById('joystick-handle');
-            joystickBase = document.getElementById('joystick-base');
-            
-            if (!joystickHandle || !joystickBase) {
-                console.error("Элементы джойстика не найдены!");
-                setTimeout(initApp, 100);
-                return;
-            }
-            
-            const baseRect = joystickBase.getBoundingClientRect();
-            maxDistance = baseRect.width / 2 - 30;
-            
-            // Инициализация обработчиков событий
-            initEventHandlers();
-            
-            console.log("Приложение инициализировано");
-            resetJoystick();
-            updateConnectionStatus(false);
+        // Инициализация элементов
+        joystickHandle = document.getElementById('joystick-handle');
+        joystickBase = document.getElementById('joystick-base');
+        
+        if (!joystickHandle || !joystickBase) {
+            console.error("Элементы джойстика не найдены!");
+            setTimeout(initApp, 100);
+            return;
         }
+        
+        const baseRect = joystickBase.getBoundingClientRect();
+        maxDistance = baseRect.width / 2 - 30;
+        
+        // Инициализация обработчиков событий
+        initEventHandlers();
+        
+        console.log("Приложение инициализировано");
+        resetJoystick();
+        updateConnectionStatus(false);
+        
+        // Автоматически подключаемся к надежному брокеру
+        document.getElementById('broker').value = 'wss://broker.emqx.io';
+        document.getElementById('port').value = '8084';
+    }
 
-        // Глобальные функции
-        window.connect = function() {
-            try {
-                const broker = document.getElementById('broker').value;
-                const port = parseInt(document.getElementById('port').value);
-                const topic = document.getElementById('topic').value;
-                
-                console.log("Подключаемся к:", broker, "порт:", port);
-                
-                // Создаем MQTT клиент
-                client = new Paho.Client(broker, port, "web_client_" + Math.random().toString(16).substr(2, 8));
-                
-                client.onConnectionLost = onConnectionLost;
-                client.onMessageArrived = onMessageArrived;
-                
-                client.connect({
-                    onSuccess: onConnect,
-                    onFailure: onFailure,
-                    useSSL: false
-                });
-            } catch (error) {
-                console.error("Ошибка подключения:", error);
-                alert("Ошибка создания MQTT клиента: " + error.message);
-            }
-        }
-
-        window.disconnect = function() {
-            if (client && client.isConnected()) {
-                client.disconnect();
-            }
-            isConnected = false;
-            updateConnectionStatus(false);
-            emergencyStop();
-            alert("Отключено");
-        }
-
-        window.emergencyStop = function() {
-            sendCommand("STOP");
-            resetJoystick();
-            updateValues(0, 0);
-        }
-
-        function onConnect() {
-            console.log("Connected to MQTT broker");
-            isConnected = true;
-            updateConnectionStatus(true);
-            alert("Успешно подключено! Можно управлять машинкой.");
-        }
-
-        function onFailure(message) {
-            console.error("Connection failed:", message);
-            alert("Ошибка подключения: " + message.errorMessage);
-        }
-
-        function onConnectionLost(responseObject) {
-            if (responseObject.errorCode !== 0) {
-                console.log("Connection lost:", responseObject.errorMessage);
-                isConnected = false;
-                updateConnectionStatus(false);
-            }
-        }
-
-        function onMessageArrived(message) {
-            console.log("Message received:", message.payloadString);
-        }
-
-        function updateConnectionStatus(connected) {
-            const statusElement = document.getElementById('connection-status');
-            if (connected) {
-                statusElement.textContent = "Подключено ✓";
-                statusElement.className = "connection-status connected";
-            } else {
-                statusElement.textContent = "Отключено ✗";
-                statusElement.className = "connection-status disconnected";
-            }
-        }
-
-        function sendCommand(cmd) {
-            if (!isConnected || !client) {
-                alert("Сначала подключитесь!");
-                return;
-            }
-            
+    // Глобальные функции
+    window.connect = function() {
+        try {
+            let broker = document.getElementById('broker').value;
+            let port = parseInt(document.getElementById('port').value);
             const topic = document.getElementById('topic').value;
             
-            console.log("Отправка команды:", cmd);
-            lastCommand = cmd;
-            document.getElementById('last-command').textContent = cmd;
-            
-            try {
-                // ИСПРАВЛЕННАЯ СТРОКА: используем Paho.Message
-                const message = new Paho.Message(cmd);
-                message.destinationName = topic;
-                message.qos = 0;
-                message.retained = false;
-                
-                client.send(message);
-                console.log("Команда отправлена успешно");
-            } catch (error) {
-                console.error("Ошибка отправки:", error);
-            }
-        }
-
-        function resetJoystick() {
-            if (joystickHandle) {
-                joystickHandle.style.transform = 'translate(-50%, -50%)';
-            }
-        }
-
-        function updateValues(steer, speed) {
-            document.getElementById('steer-value').textContent = steer + '%';
-            document.getElementById('speed-value').textContent = speed + '%';
-        }
-
-        function initEventHandlers() {
-            // Обработчики событий для джойстика
-            joystickHandle.addEventListener('mousedown', startDrag);
-            joystickBase.addEventListener('mousedown', startDrag);
-            
-            document.addEventListener('mousemove', drag);
-            document.addEventListener('mouseup', stopDrag);
-            
-            // Сенсорные события для мобильных устройств
-            joystickHandle.addEventListener('touchstart', handleTouch, { passive: false });
-            joystickBase.addEventListener('touchstart', handleTouch, { passive: false });
-            
-            document.addEventListener('touchmove', handleTouchMove, { passive: false });
-            document.addEventListener('touchend', stopDrag);
-        }
-
-        function startDrag(e) {
-            e.preventDefault();
-            isDragging = true;
-            updateJoystick(e.clientX, e.clientY);
-        }
-
-        function handleTouch(e) {
-            e.preventDefault();
-            isDragging = true;
-            const touch = e.touches[0];
-            updateJoystick(touch.clientX, touch.clientY);
-        }
-
-        function drag(e) {
-            if (!isDragging) return;
-            e.preventDefault();
-            updateJoystick(e.clientX, e.clientY);
-        }
-
-        function handleTouchMove(e) {
-            if (!isDragging) return;
-            e.preventDefault();
-            const touch = e.touches[0];
-            updateJoystick(touch.clientX, touch.clientY);
-        }
-
-        function stopDrag() {
-            if (!isDragging) return;
-            isDragging = false;
-            emergencyStop();
-        }
-
-        function updateJoystick(clientX, clientY) {
-            const baseRect = joystickBase.getBoundingClientRect();
-            const centerX = baseRect.left + baseRect.width / 2;
-            const centerY = baseRect.top + baseRect.height / 2;
-            
-            let deltaX = clientX - centerX;
-            let deltaY = clientY - centerY;
-            
-            // Ограничиваем движение кругом
-            const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-            if (distance > maxDistance) {
-                deltaX = (deltaX / distance) * maxDistance;
-                deltaY = (deltaY / distance) * maxDistance;
+            // Автоматическое исправление адреса для WebSocket
+            if (!broker.startsWith('ws://') && !broker.startsWith('wss://')) {
+                if (port === 8884 || port === 8084) {
+                    broker = 'wss://' + broker;
+                } else {
+                    broker = 'ws://' + broker;
+                }
+                document.getElementById('broker').value = broker;
             }
             
-            // Обновляем позицию джойстика
-            joystickHandle.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
+            console.log("Подключаемся к:", broker, "порт:", port);
             
-            // Преобразуем в проценты (-100 до 100)
-            const steer = Math.round((deltaX / maxDistance) * 100);
-            const speed = Math.round((-deltaY / maxDistance) * 100); // Инвертируем Y
+            // Извлекаем хост из WebSocket URL
+            const host = broker.replace(/^wss?:\/\//, '').split('/')[0];
             
-            // Обновляем значения
-            updateValues(steer, speed);
+            // Создаем MQTT клиент
+            client = new Paho.Client(host, port, "web_client_" + Math.random().toString(16).substr(2, 8));
             
-            // Отправляем команду только если значения изменились
-            const currentCommand = `J${steer},${speed}`;
-            if (currentCommand !== lastCommand) {
-                sendCommand(currentCommand);
-            }
+            client.onConnectionLost = onConnectionLost;
+            client.onMessageArrived = onMessageArrived;
+            
+            // Определяем использование SSL
+            const useSSL = broker.startsWith('wss://');
+            
+            client.connect({
+                onSuccess: onConnect,
+                onFailure: onFailure,
+                useSSL: useSSL,
+                timeout: 10,
+                reconnect: false,
+                onSuccess: onConnect,
+                onFailure: onFailure,
+                useSSL: useSSL,
+                hosts: host,
+                ports: port
+            });
+        } catch (error) {
+            console.error("Ошибка подключения:", error);
+            alert("Ошибка: " + error.message + "\n\nПопробуйте: wss://broker.emqx.io:8084");
         }
+    }
 
-        // Инициализация при загрузке
-        window.addEventListener('load', function() {
-            console.log("Страница загружена");
-            initApp();
-        });
+    window.disconnect = function() {
+        if (client && client.isConnected()) {
+            client.disconnect();
+        }
+        isConnected = false;
+        updateConnectionStatus(false);
+        emergencyStop();
+    }
 
-        // Предотвращаем контекстное меню
-        document.addEventListener('contextmenu', function(e) {
-            e.preventDefault();
-        });
-    </script>
+    window.emergencyStop = function() {
+        sendCommand("STOP");
+        resetJoystick();
+        updateValues(0, 0);
+    }
+
+    function onConnect() {
+        console.log("Connected to MQTT broker");
+        isConnected = true;
+        updateConnectionStatus(true);
+        
+        // Подписываемся на топик
+        const topic = document.getElementById('topic').value;
+        client.subscribe(topic);
+        console.log("Subscribed to topic:", topic);
+        
+        alert("Успешно подключено! Можно управлять машинкой.");
+    }
+
+    function onFailure(message) {
+        console.error("Connection failed:", message);
+        
+        // Предлагаем альтернативные настройки
+        if (message.errorCode !== 0) {
+            document.getElementById('broker').value = 'wss://broker.emqx.io';
+            document.getElementById('port').value = '8084';
+            alert("Ошибка подключения! Автоматически переключено на broker.emqx.io:8084\n\nНажмите 'Подключиться' еще раз.");
+        }
+    }
+
+    function onConnectionLost(responseObject) {
+        if (responseObject.errorCode !== 0) {
+            console.log("Connection lost:", responseObject.errorMessage);
+            isConnected = false;
+            updateConnectionStatus(false);
+        }
+    }
+
+    function onMessageArrived(message) {
+        console.log("Message received:", message.payloadString);
+    }
+
+    function updateConnectionStatus(connected) {
+        const statusElement = document.getElementById('connection-status');
+        if (connected) {
+            statusElement.textContent = "Подключено ✓";
+            statusElement.className = "connection-status connected";
+        } else {
+            statusElement.textContent = "Отключено ✗";
+            statusElement.className = "connection-status disconnected";
+        }
+    }
+
+    function sendCommand(cmd) {
+        if (!isConnected || !client) {
+            alert("Сначала подключитесь!");
+            return;
+        }
+        
+        const topic = document.getElementById('topic').value;
+        
+        console.log("Отправка команды:", cmd);
+        lastCommand = cmd;
+        document.getElementById('last-command').textContent = cmd;
+        
+        try {
+            const message = new Paho.Message(cmd);
+            message.destinationName = topic;
+            message.qos = 0;
+            message.retained = false;
+            
+            client.send(message);
+            console.log("Команда отправлена успешно");
+        } catch (error) {
+            console.error("Ошибка отправки:", error);
+        }
+    }
+
+    function resetJoystick() {
+        if (joystickHandle) {
+            joystickHandle.style.transform = 'translate(-50%, -50%)';
+        }
+    }
+
+    function updateValues(steer, speed) {
+        document.getElementById('steer-value').textContent = steer + '%';
+        document.getElementById('speed-value').textContent = speed + '%';
+    }
+
+    function initEventHandlers() {
+        // Обработчики событий для джойстика
+        if (joystickHandle) joystickHandle.addEventListener('mousedown', startDrag);
+        if (joystickBase) joystickBase.addEventListener('mousedown', startDrag);
+        
+        document.addEventListener('mousemove', drag);
+        document.addEventListener('mouseup', stopDrag);
+        
+        // Сенсорные события
+        if (joystickHandle) joystickHandle.addEventListener('touchstart', handleTouch, { passive: false });
+        if (joystickBase) joystickBase.addEventListener('touchstart', handleTouch, { passive: false });
+        
+        document.addEventListener('touchmove', handleTouchMove, { passive: false });
+        document.addEventListener('touchend', stopDrag);
+    }
+
+    function startDrag(e) {
+        e.preventDefault();
+        isDragging = true;
+        updateJoystick(e.clientX, e.clientY);
+    }
+
+    function handleTouch(e) {
+        e.preventDefault();
+        isDragging = true;
+        const touch = e.touches[0];
+        updateJoystick(touch.clientX, touch.clientY);
+    }
+
+    function drag(e) {
+        if (!isDragging) return;
+        e.preventDefault();
+        updateJoystick(e.clientX, e.clientY);
+    }
+
+    function handleTouchMove(e) {
+        if (!isDragging) return;
+        e.preventDefault();
+        const touch = e.touches[0];
+        updateJoystick(touch.clientX, touch.clientY);
+    }
+
+    function stopDrag() {
+        if (!isDragging) return;
+        isDragging = false;
+        emergencyStop();
+    }
+
+    function updateJoystick(clientX, clientY) {
+        const baseRect = joystickBase.getBoundingClientRect();
+        const centerX = baseRect.left + baseRect.width / 2;
+        const centerY = baseRect.top + baseRect.height / 2;
+        
+        let deltaX = clientX - centerX;
+        let deltaY = clientY - centerY;
+        
+        const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+        if (distance > maxDistance) {
+            deltaX = (deltaX / distance) * maxDistance;
+            deltaY = (deltaY / distance) * maxDistance;
+        }
+        
+        joystickHandle.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
+        
+        const steer = Math.round((deltaX / maxDistance) * 100);
+        const speed = Math.round((-deltaY / maxDistance) * 100);
+        
+        updateValues(steer, speed);
+        
+        const currentCommand = `J${steer},${speed}`;
+        if (currentCommand !== lastCommand) {
+            sendCommand(currentCommand);
+        }
+    }
+
+    // Инициализация при загрузке
+    window.addEventListener('load', function() {
+        console.log("Страница загружена");
+        initApp();
+    });
+
+    document.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+    });
+</script>
+    
 </body>
 </html>
