@@ -50,7 +50,7 @@
             border: 3px solid white;
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
             cursor: move;
-            transition: transform 0.1s ease;
+            transition: transform 0.05s ease;
         }
         
         .status-panel {
@@ -138,6 +138,15 @@
             color: #aaa;
             margin: 10px 0;
         }
+        
+        .debug-info {
+            background: rgba(0,0,0,0.2);
+            padding: 10px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-size: 12px;
+            color: #ccc;
+        }
     </style>
 </head>
 <body>
@@ -150,9 +159,7 @@
         
         <div class="control-panel">
             <div>
-                <input type="text" id="broker" value="wss://broker.emqx.io" placeholder="MQTT брокер">
-
-                
+                <input type="text" id="broker" value="wss://broker.emqx.io:8084/mqtt" placeholder="MQTT брокер">
             </div>
             <div>
                 <input type="text" id="topic" value="car/control" placeholder="Топик">
@@ -165,7 +172,8 @@
         
         <div class="instructions">
             💡 Перетащите синий шар для управления<br>
-            ↕️ Вверх/вниз = скорость, ↔️ Влево/вправо = поворот
+            ↕️ Вверх/вниз = скорость, ↔️ Влево/вправо = поворот<br>
+            📐 Диапазон поворота: 30°-150° (120° общий ход)
         </div>
         
         <div id="joystick-container">
@@ -186,14 +194,21 @@
             </div>
         </div>
         
+        <div class="debug-info">
+            <div>Угол сервы: <span id="servo-angle">90°</span></div>
+            <div>Скорость мотора: <span id="motor-speed">0</span></div>
+        </div>
+        
         <div>
             <button class="stop-btn" onclick="emergencyStop()">🛑 АВАРИЙНАЯ ОСТАНОВКА</button>
         </div>
         
         <div class="instructions">
-            Последняя команда: <span id="last-command">-</span>
+            Последняя команда: <span id="last-command">-</span><br>
+            Частота отправки: <span id="send-rate">0</span> кмд/сек
         </div>
     </div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
 <script>
     // Глобальные переменные
@@ -202,6 +217,8 @@
     let lastCommand = "";
     let client = null;
     let joystickHandle, joystickBase, maxDistance;
+    let sendCount = 0;
+    let lastSecond = 0;
 
     // Инициализация приложения
     function initApp() {
@@ -226,11 +243,6 @@
         console.log("Приложение инициализировано");
         resetJoystick();
         updateConnectionStatus(false);
-        
-        // Устанавливаем рабочие настройки по умолчанию
-        document.getElementById('broker').value = 'wss://broker.emqx.io:8084/mqtt';
-        document.getElementById('topic').value = 'car/control';
-        document.getElementById('port').style.display = 'none';
     }
 
     // Глобальные функции
@@ -244,7 +256,8 @@
             // Подключаемся с помощью MQTT.js
             client = mqtt.connect(brokerUrl, {
                 clientId: 'web_client_' + Math.random().toString(16).substr(2, 8),
-                reconnectPeriod: 0
+                reconnectPeriod: 0,
+                keepalive: 60
             });
             
             client.on('connect', function() {
@@ -290,6 +303,7 @@
         sendCommand("STOP");
         resetJoystick();
         updateValues(0, 0);
+        updateDebugInfo(90, 0);
     }
 
     function updateConnectionStatus(connected) {
@@ -305,18 +319,34 @@
 
     function sendCommand(cmd) {
         if (!isConnected || !client) {
-            alert("Сначала подключитесь!");
+            console.log("Не подключено - команда не отправлена");
             return;
         }
         
         const topic = document.getElementById('topic').value;
         
+        // Ограничение частоты отправки команд
+        const now = Date.now();
+        if (lastCommand === cmd && now - lastSendTime < 50) {
+            return; // Не отправляем одинаковые команды чаще 20 раз в секунду
+        }
+        
         console.log("Отправка команды:", cmd);
         lastCommand = cmd;
+        lastSendTime = now;
         document.getElementById('last-command').textContent = cmd;
         
+        // Подсчет частоты отправки
+        sendCount++;
+        const currentSecond = Math.floor(now / 1000);
+        if (currentSecond !== lastSecond) {
+            document.getElementById('send-rate').textContent = sendCount;
+            sendCount = 0;
+            lastSecond = currentSecond;
+        }
+        
         try {
-            client.publish(topic, cmd);
+            client.publish(topic, cmd, { qos: 0 }); // QoS 0 для максимальной скорости
             console.log("Команда отправлена успешно");
         } catch (error) {
             console.error("Ошибка отправки:", error);
@@ -333,6 +363,13 @@
         document.getElementById('steer-value').textContent = steer + '%';
         document.getElementById('speed-value').textContent = speed + '%';
     }
+    
+    function updateDebugInfo(servoAngle, motorSpeed) {
+        document.getElementById('servo-angle').textContent = servoAngle + '°';
+        document.getElementById('motor-speed').textContent = motorSpeed;
+    }
+
+    let lastSendTime = 0;
 
     function initEventHandlers() {
         // Обработчики событий для джойстика
@@ -401,12 +438,15 @@
         const steer = Math.round((deltaX / maxDistance) * 100);
         const speed = Math.round((-deltaY / maxDistance) * 100);
         
+        // Расчет отладочной информации
+        const servoAngle = Math.round(steer * 0.6 + 90); // 30-150 диапазон
+        const motorSpeed = Math.round(speed * 2.55); // -255 до 255
+        
         updateValues(steer, speed);
+        updateDebugInfo(servoAngle, motorSpeed);
         
         const currentCommand = `J${steer},${speed}`;
-        if (currentCommand !== lastCommand) {
-            sendCommand(currentCommand);
-        }
+        sendCommand(currentCommand);
     }
 
     // Инициализация при загрузке
