@@ -18,12 +18,11 @@
             color: white;
             min-height: 100vh;
             padding: 20px;
-            touch-action: none;
-            user-select: none;
+            overflow-x: hidden;
         }
         
         .container {
-            max-width: 1000px;
+            max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
         }
@@ -76,6 +75,7 @@
             display: flex;
             gap: 15px;
             justify-content: center;
+            flex-wrap: wrap;
         }
         
         button {
@@ -125,6 +125,7 @@
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.2);
             min-width: 300px;
+            max-width: 400px;
         }
         
         .joystick-title {
@@ -138,6 +139,7 @@
             width: 200px;
             height: 200px;
             margin: 0 auto;
+            touch-action: none; /* Только для области джойстика */
         }
         
         .joystick-base {
@@ -163,6 +165,8 @@
             cursor: move;
             box-shadow: 0 0 15px rgba(0, 255, 136, 0.4);
             transition: transform 0.1s ease;
+            touch-action: none;
+            user-select: none;
         }
         
         .steering .joystick-base {
@@ -259,16 +263,64 @@
             color: #ccc;
             margin: 20px 0;
             line-height: 1.6;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 15px;
         }
         
-        @media (max-width: 768px) {
+        .debug-info {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 15px;
+            margin: 15px 0;
+            font-size: 14px;
+            color: #aaa;
+        }
+        
+        /* Стили для ПК */
+        @media (min-width: 1024px) {
+            .container {
+                padding: 40px;
+            }
+            
             .joysticks-container {
-                flex-direction: column;
-                align-items: center;
+                gap: 60px;
             }
             
             .joystick-wrapper {
-                min-width: 250px;
+                min-width: 350px;
+                padding: 30px;
+            }
+            
+            .joystick {
+                width: 250px;
+                height: 250px;
+            }
+            
+            .joystick-handle {
+                width: 60px;
+                height: 60px;
+            }
+            
+            .status-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+        
+        /* Стили для мобильных устройств */
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            
+            .container {
+                padding: 10px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
             }
             
             .input-group {
@@ -277,6 +329,78 @@
             
             input {
                 min-width: auto;
+                width: 100%;
+            }
+            
+            .button-group {
+                flex-direction: column;
+            }
+            
+            button {
+                width: 100%;
+            }
+            
+            .joysticks-container {
+                flex-direction: column;
+                gap: 20px;
+            }
+            
+            .joystick-wrapper {
+                min-width: auto;
+                width: 100%;
+                max-width: 100%;
+                padding: 20px;
+            }
+            
+            .joystick {
+                width: 180px;
+                height: 180px;
+            }
+            
+            .joystick-handle {
+                width: 45px;
+                height: 45px;
+            }
+            
+            .status-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+            }
+            
+            .status-item {
+                padding: 15px;
+            }
+            
+            .emergency-btn {
+                padding: 15px 30px;
+                font-size: 1.1em;
+                width: 100%;
+            }
+            
+            .connection-panel {
+                padding: 15px;
+            }
+        }
+        
+        /* Дополнительные стили для очень маленьких экранов */
+        @media (max-width: 480px) {
+            .joystick {
+                width: 150px;
+                height: 150px;
+            }
+            
+            .joystick-handle {
+                width: 40px;
+                height: 40px;
+            }
+            
+            .status-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .value-display {
+                font-size: 1.1em;
+                padding: 10px;
             }
         }
     </style>
@@ -352,7 +476,12 @@
             💡 <strong>Управление:</strong><br>
             • Левый джойстик: Вперёд/Назад - управление скоростью<br>
             • Правый джойстик: Влево/Вправо - управление поворотом<br>
-            • Центральное положение - нейтраль
+            • Центральное положение - нейтраль<br>
+            • На телефоне: касайтесь и двигайте джойстики пальцем
+        </div>
+        
+        <div class="debug-info">
+            Последняя команда: <span id="last-command">-</span>
         </div>
         
         <div class="control-buttons">
@@ -374,12 +503,15 @@
     
     // Элементы DOM
     let throttleHandle, steeringHandle;
-    let throttleBase, steeringBase;
-    let maxDistance = 85; // Максимальное расстояние перемещения джойстика
+    let maxDistance = 85;
     
     // Текущие значения
     let currentThrottle = 0;
     let currentSteering = 0;
+    
+    // Состояние перетаскивания
+    let activeJoystick = null;
+    let isDragging = false;
 
     // Инициализация приложения
     function initApp() {
@@ -388,8 +520,6 @@
         // Получаем элементы джойстиков
         throttleHandle = document.getElementById('throttle-handle');
         steeringHandle = document.getElementById('steering-handle');
-        throttleBase = document.getElementById('throttle-joystick');
-        steeringBase = document.getElementById('steering-joystick');
         
         if (!throttleHandle || !steeringHandle) {
             setTimeout(initApp, 100);
@@ -397,79 +527,78 @@
         }
         
         // Инициализация обработчиков событий
-        initJoystick(throttleHandle, throttleBase, 'throttle');
-        initJoystick(steeringHandle, steeringBase, 'steering');
+        initJoystickEvents();
         
         console.log("RC пульт инициализирован");
         updateConnectionStatus(false);
     }
 
-    // Инициализация джойстика
-    function initJoystick(handle, base, type) {
-        const baseRect = base.getBoundingClientRect();
-        const centerX = baseRect.left + baseRect.width / 2;
-        const centerY = baseRect.top + baseRect.height / 2;
+    // Инициализация событий джойстиков
+    function initJoystickEvents() {
+        const joysticks = [
+            { element: throttleHandle, type: 'throttle', base: document.getElementById('throttle-joystick') },
+            { element: steeringHandle, type: 'steering', base: document.getElementById('steering-joystick') }
+        ];
         
-        let isDragging = false;
-        
-        // События мыши
-        handle.addEventListener('mousedown', (e) => startDrag(e, type));
-        base.addEventListener('mousedown', (e) => startDrag(e, type));
-        
-        // Сенсорные события
-        handle.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            const touch = e.touches[0];
-            startDrag({clientX: touch.clientX, clientY: touch.clientY}, type);
-        }, {passive: false});
-        
-        base.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            const touch = e.touches[0];
-            startDrag({clientX: touch.clientX, clientY: touch.clientY}, type);
-        }, {passive: false});
-        
-        function startDrag(e, joyType) {
-            isDragging = true;
-            updateJoystick(e.clientX, e.clientY, joyType);
-        }
-        
-        // Общие обработчики
-        document.addEventListener('mousemove', (e) => {
-            if (isDragging) updateJoystick(e.clientX, e.clientY, type);
+        joysticks.forEach(joystick => {
+            // События мыши
+            joystick.element.addEventListener('mousedown', (e) => startDrag(e, joystick.type, joystick.base));
+            joystick.base.addEventListener('mousedown', (e) => startDrag(e, joystick.type, joystick.base));
+            
+            // Сенсорные события
+            joystick.element.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    e.preventDefault();
+                    startDrag(e.touches[0], joystick.type, joystick.base);
+                }
+            }, { passive: false });
+            
+            joystick.base.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    e.preventDefault();
+                    startDrag(e.touches[0], joystick.type, joystick.base);
+                }
+            }, { passive: false });
         });
         
-        document.addEventListener('touchmove', (e) => {
-            if (isDragging && e.touches.length > 0) {
-                e.preventDefault();
-                const touch = e.touches[0];
-                updateJoystick(touch.clientX, touch.clientY, type);
-            }
-        }, {passive: false});
-        
+        // Глобальные обработчики
+        document.addEventListener('mousemove', handleDrag);
+        document.addEventListener('touchmove', handleTouchMove, { passive: false });
         document.addEventListener('mouseup', stopDrag);
         document.addEventListener('touchend', stopDrag);
-        
-        function stopDrag() {
-            if (isDragging) {
-                isDragging = false;
-                // Плавный возврат в центр
-                animateToCenter(type);
-            }
-        }
+        document.addEventListener('touchcancel', stopDrag);
     }
 
-    // Обновление положения джойстика
-    function updateJoystick(clientX, clientY, type) {
-        const base = type === 'throttle' ? throttleBase : steeringBase;
-        const handle = type === 'throttle' ? throttleHandle : steeringHandle;
+    // Начало перетаскивания
+    function startDrag(e, type, base) {
+        isDragging = true;
+        activeJoystick = { type, base, element: type === 'throttle' ? throttleHandle : steeringHandle };
+        updateJoystickPosition(e.clientX, e.clientY);
+    }
+
+    // Обработка перетаскивания мышью
+    function handleDrag(e) {
+        if (!isDragging) return;
+        updateJoystickPosition(e.clientX, e.clientY);
+    }
+
+    // Обработка перетаскивания касанием
+    function handleTouchMove(e) {
+        if (!isDragging || e.touches.length !== 1) return;
+        e.preventDefault();
+        updateJoystickPosition(e.touches[0].clientX, e.touches[0].clientY);
+    }
+
+    // Обновление позиции джойстика
+    function updateJoystickPosition(clientX, clientY) {
+        if (!activeJoystick) return;
         
-        const baseRect = base.getBoundingClientRect();
+        const baseRect = activeJoystick.base.getBoundingClientRect();
         const centerX = baseRect.left + baseRect.width / 2;
         const centerY = baseRect.top + baseRect.height / 2;
         
-        let deltaX = type === 'steering' ? clientX - centerX : 0;
-        let deltaY = type === 'throttle' ? centerY - clientY : clientY - centerY;
+        let deltaX = activeJoystick.type === 'steering' ? clientX - centerX : 0;
+        let deltaY = activeJoystick.type === 'throttle' ? centerY - clientY : clientY - centerY;
         
         // Ограничение перемещения
         const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
@@ -479,11 +608,11 @@
         }
         
         // Обновление позиции
-        handle.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
+        activeJoystick.element.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
         
         // Расчет значений
         let value = 0;
-        if (type === 'throttle') {
+        if (activeJoystick.type === 'throttle') {
             value = Math.round((deltaY / maxDistance) * 100);
             currentThrottle = value;
             document.getElementById('throttle-value').textContent = value + '%';
@@ -495,50 +624,58 @@
         
         // Отправка команды
         sendControlCommand();
-        
-        // Обновление отладочной информации
         updateDebugInfo();
     }
 
-    // Плавный возврат в центр
-    function animateToCenter(type) {
-        const handle = type === 'throttle' ? throttleHandle : steeringHandle;
-        handle.style.transition = 'transform 0.3s ease';
-        handle.style.transform = 'translate(-50%, -50%)';
+    // Остановка перетаскивания
+    function stopDrag() {
+        if (!isDragging) return;
         
-        setTimeout(() => {
-            handle.style.transition = '';
+        isDragging = false;
+        
+        // Плавный возврат в центр
+        if (activeJoystick) {
+            activeJoystick.element.style.transition = 'transform 0.3s ease';
+            activeJoystick.element.style.transform = 'translate(-50%, -50%)';
             
-            if (type === 'throttle') {
-                currentThrottle = 0;
-                document.getElementById('throttle-value').textContent = '0%';
-            } else {
-                currentSteering = 0;
-                document.getElementById('steering-value').textContent = '0%';
-            }
-            
-            sendControlCommand();
-            updateDebugInfo();
-        }, 300);
+            setTimeout(() => {
+                if (activeJoystick) {
+                    activeJoystick.element.style.transition = '';
+                    
+                    if (activeJoystick.type === 'throttle') {
+                        currentThrottle = 0;
+                        document.getElementById('throttle-value').textContent = '0%';
+                    } else {
+                        currentSteering = 0;
+                        document.getElementById('steering-value').textContent = '0%';
+                    }
+                    
+                    sendControlCommand();
+                    updateDebugInfo();
+                }
+            }, 300);
+        }
+        
+        activeJoystick = null;
     }
 
     // Отправка команды управления
     function sendControlCommand() {
         const now = Date.now();
         
-        // Ограничение частоты отправки (макс. 20 команд/сек)
+        // Ограничение частоты отправки
         if (now - lastSendTime < 50) {
             return;
         }
         
-        // Проверка изменений (отправляем только если значения изменились)
+        // Проверка изменений
         if (currentThrottle === lastThrottle && currentSteering === lastSteering) {
             return;
         }
         
         const command = `J${currentSteering},${currentThrottle}`;
         
-        if (isConnected && client) {
+        if (isConnected && client && client.connected) {
             const topic = document.getElementById('topic').value;
             try {
                 client.publish(topic, command, {qos: 0});
@@ -553,6 +690,7 @@
                 }
                 
                 document.getElementById('link-status').textContent = '✅';
+                document.getElementById('last-command').textContent = command;
             } catch (error) {
                 console.error("Ошибка отправки:", error);
                 document.getElementById('link-status').textContent = '❌';
@@ -562,8 +700,6 @@
         lastSendTime = now;
         lastThrottle = currentThrottle;
         lastSteering = currentSteering;
-        
-        document.getElementById('last-command').textContent = command;
     }
 
     // Обновление отладочной информации
@@ -579,7 +715,6 @@
     window.connect = function() {
         try {
             const brokerUrl = document.getElementById('broker').value;
-            const topic = document.getElementById('topic').value;
             
             console.log("Подключение к MQTT:", brokerUrl);
             
@@ -594,31 +729,16 @@
                 console.log("Успешное подключение к MQTT");
                 isConnected = true;
                 updateConnectionStatus(true);
-                client.subscribe(topic, function(err) {
-                    if (!err) {
-                        console.log("Подписан на топик:", topic);
-                    }
-                });
             });
             
             client.on('error', function(error) {
                 console.error("Ошибка подключения:", error);
-                alert("Ошибка подключения: " + error.message);
-                updateConnectionStatus(false);
-            });
-            
-            client.on('message', function(receivedTopic, message) {
-                console.log("Получено сообщение:", message.toString());
-            });
-            
-            client.on('close', function() {
-                isConnected = false;
                 updateConnectionStatus(false);
             });
             
         } catch (error) {
             console.error("Ошибка:", error);
-            alert("Ошибка: " + error.message);
+            alert("Ошибка подключения: " + error.message);
         }
     }
 
@@ -641,13 +761,13 @@
         document.getElementById('steering-value').textContent = '0%';
         
         // Возврат джойстиков в центр
-        throttleHandle.style.transform = 'translate(-50%, -50%)';
-        steeringHandle.style.transform = 'translate(-50%, -50%)';
+        if (throttleHandle) throttleHandle.style.transform = 'translate(-50%, -50%)';
+        if (steeringHandle) steeringHandle.style.transform = 'translate(-50%, -50%)';
         
         sendControlCommand();
         updateDebugInfo();
         
-        if (isConnected && client) {
+        if (isConnected && client && client.connected) {
             const topic = document.getElementById('topic').value;
             client.publish(topic, "STOP", {qos: 0});
         }
@@ -675,9 +795,11 @@
         initApp();
     });
 
-    // Запрет контекстного меню
-    document.addEventListener('contextmenu', function(e) {
-        e.preventDefault();
+    // Запрет контекстного меню только на джойстиках
+    document.querySelectorAll('.joystick-handle, .joystick-base').forEach(element => {
+        element.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+        });
     });
 </script>
     
