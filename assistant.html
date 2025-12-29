@@ -2,25 +2,46 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>AI Ассистент Groq</title>
+    <title>AI Ассистент Groq (через Прокси)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            text-align: center;
+        }
+        #output {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ccc;
+            min-height: 50px;
+            text-align: left;
+            white-space: pre-wrap;
+        }
+        #startButton {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
 </head>
 <body>
 
-<h1>AI Ассистент (Groq)</h1>
-<button id="startButton">Начать голосовой ввод</button>
-<p id="output">Готов к работе...</p>
+    <h1>AI Ассистент (Groq Proxy)</h1>
+    <button id="startButton">Начать голосовой ввод</button>
+    <p id="output">Готов к работе...</p>
 
-<script>
+    <script>
 /* ================== НАСТРОЙКИ ================== */
-const GROQ_API_KEY = "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";
-const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-const GROQ_MODEL = "llama-3.1-8b-instant";
+// Ключ и модель теперь безопасно хранятся на Python Proxy Server (192.168.1.94:8080)
+
+// !!! ВАШ АДРЕС ПРОКСИ-СЕРВЕРА (Основан на IP, который Вы предоставили) !!!
+const PROXY_URL = "http://192.168.1.94:8080/groq_ask"; 
 
 const ESP32_IP = "192.168.1.100";
 /* ============================================== */
 
-// ---------- TTS ----------
+// ---------- TTS (Text-to-Speech) ----------
 function speak(text) {
     if (!('speechSynthesis' in window)) return;
     const u = new SpeechSynthesisUtterance(text);
@@ -28,56 +49,52 @@ function speak(text) {
     speechSynthesis.speak(u);
 }
 
-// ---------- GROQ REQUEST ----------
+// ---------- GROQ REQUEST (ЧЕРЕЗ ПРОКСИ) ----------
 async function getGroqResponse(userText) {
     try {
-        const response = await fetch(GROQ_URL, {
+        document.getElementById("output").innerText = 
+            `Вы сказали: ${userText}\nОтправляю запрос на Ваш ПК (${PROXY_URL})...`;
+        
+        // Запрос отправляется на Ваш локальный прокси-сервер (ПК)
+        const response = await fetch(PROXY_URL, {
             method: "POST",
             headers: {
-                "Authorization": `Bearer ${GROQ_API_KEY}`,
+                // Больше не нужен Authorization Header! Прокси сам его добавит.
                 "Content-Type": "application/json"
             },
             body: JSON.stringify({
-                model: GROQ_MODEL,
-                temperature: 0.2,
-                messages: [
-                    {
-                        role: "system",
-                        content:
-                            "Ты — голосовой ассистент. " +
-                            "Если это команда управления, верни ТОЛЬКО JSON: " +
-                            "{\"command\":\"control_relay\",\"device_id\":1,\"action\":\"on|off\"}. " +
-                            "Если это вопрос — ответь коротким текстом."
-                    },
-                    {
-                        role: "user",
-                        content: userText
-                    }
-                ]
+                text: userText // Отправляем только текст
             })
         });
 
         if (!response.ok) {
-            throw new Error("HTTP " + response.status);
+            // Если прокси вернул ошибку, пытаемся получить детали
+            try {
+                const errorData = await response.json();
+                throw new Error(`Прокси вернул ошибку ${response.status}. Детали: ${errorData.error}`);
+            } catch (e) {
+                // Не смогли распарсить JSON ошибки
+                throw new Error(`Прокси вернул ошибку HTTP ${response.status}. Не удалось получить детали.`);
+            }
         }
 
         const data = await response.json();
+        
+        // Прокси возвращает полный JSON ответ от Groq
         return data.choices[0].message.content.trim();
 
     } catch (err) {
-        console.error(err);
-        return "Ошибка запроса к Groq: " + err.message;
+        console.error("Ошибка при работе с Прокси:", err);
+        return "Ошибка запроса к Прокси-серверу: " + err.message;
     }
 }
 
 // ---------- ОБРАБОТКА КОМАНД ----------
 async function processCommand(text) {
-    document.getElementById("output").innerText =
-        "Вы сказали: " + text + "\nОтправляю запрос...";
-
     const answer = await getGroqResponse(text);
 
     try {
+        // Пробуем распарсить ответ как JSON (команда управления)
         const json = JSON.parse(answer);
 
         if (json.command === "control_relay") {
@@ -85,24 +102,25 @@ async function processCommand(text) {
                 `http://${ESP32_IP}/control?id=${json.device_id}&state=${json.action}`;
 
             document.getElementById("output").innerText =
-                `Команда: ${json.action} реле ${json.device_id}`;
+                `Команда: ${json.action} реле ${json.device_id}.\n(Отправка команды на ${ESP32_IP}...)`;
 
-            speak(`Выполняю команду ${json.action}`);
+            speak(`Выполняю команду ${json.action} реле номер ${json.device_id}.`);
 
-            // Реальный вызов ESP32 (раскомментируй при необходимости)
+            // Реальный вызов ESP32 (пока закомментирован)
             // await fetch(url);
 
             return;
         }
     } catch (_) {
-        // не JSON — обычный текст
+        // Если не удалось распарсить как JSON — это обычный текстовый ответ от ИИ
     }
 
+    // Это обычный ответ ИИ
     document.getElementById("output").innerText = answer;
     speak(answer);
 }
 
-// ---------- SPEECH RECOGNITION ----------
+// ---------- SPEECH RECOGNITION (STT) ----------
 document.getElementById("startButton").onclick = () => {
     if (!('webkitSpeechRecognition' in window)) {
         alert("Браузер не поддерживает распознавание речи");
@@ -135,9 +153,8 @@ document.getElementById("startButton").onclick = () => {
     rec.start();
 };
 
-speak("Ассистент Groq готов");
+speak("Ассистент Groq загружен. Ожидаю команды.");
 </script>
 
 </body>
 </html>
-
