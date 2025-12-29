@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">  <title>AI-Ассистент</title>
+    <title>AI-Ассистент (Без Сервера)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+
+    <h1>Ваш AI-Помощник</h1>
+    <button id="startButton">Начать Голосовой Ввод</button>
+    <p id="output">Готов к приему команд...</p>
+
+    <script>
+        // Функция для озвучивания текста
+        function speak(text) {
+            if ('speechSynthesis' in window) {
+                const utterance = new SpeechSynthesisUtterance(text);
+                // Настройка голоса (можно выбрать украинский или русский, если доступен)
+                // utterance.lang = 'ru-RU'; 
+                window.speechSynthesis.speak(utterance);
+            } else {
+                console.warn('Text-to-Speech не поддерживается в этом браузере.');
+            }
+        }
+
+        // --- Заглушки для API (имитация) ---
+
+        // Заглушка функции, которая будет отправлять запрос в Google STT и Groq
+        function processVoiceCommand(commandText) {
+            document.getElementById('output').innerText = `Команда получена: ${commandText}. Обработка...`;
+
+            // 1. Проверка на команду YouTube Music
+            if (commandText.toLowerCase().includes('включи') && (commandText.toLowerCase().includes('трек') || commandText.toLowerCase().includes('музыку'))) {
+                // В реальном проекте здесь будет вызов YouTube Music Tool или API
+                const trackName = commandText.replace(/включи|трек|музыку|на youtube|на youtube music/gi, '').trim();
+                const response = `Включаю ${trackName} на YouTube Music.`;
+                document.getElementById('output').innerText = response;
+                speak(response);
+                // В реальном проекте здесь нужно выполнить вызов youtube_music:play
+                // (Это не сработает в чистом JS, но покажет намерение)
+                return;
+            }
+
+            // 2. Проверка на команду Реле (простая заглушка для демонстрации)
+            if (commandText.toLowerCase().includes('включи свет') || commandText.toLowerCase().includes('выключи реле')) {
+                // В реальном проекте Groq вернет JSON, который мы распарсим
+                const groqResponseJSON = {
+                    "device_id": 5, 
+                    "action": "on"
+                }; 
+                
+                // В реальном проекте здесь будет отправка HTTP-запроса на ESP32
+                const esp32IP = "192.168.1.100"; // Замените на IP Вашего ESP32
+                const url = `http://${esp32IP}/control?id=${groqResponseJSON.device_id}&state=${groqResponseJSON.action}`;
+                
+                const response = `Отправляю команду на ESP32 для ${groqResponseJSON.action} реле №${groqResponseJSON.device_id}.`;
+                document.getElementById('output').innerText = response;
+                speak(response);
+                
+                // Fetch(url).then(...).catch(...)
+                return;
+            }
+
+            // 3. Фактический вопрос (имитация Groq ответа)
+            if (commandText.toLowerCase().includes('кто президент') || commandText.toLowerCase().includes('столица')) {
+                // Здесь должен быть реальный вызов Groq API
+                const groqAnswer = "Столица Украины — Киев. Это ответ от Groq."; 
+                document.getElementById('output').innerText = groqAnswer;
+                speak(groqAnswer);
+                return;
+            }
+
+            // Если не распознано
+            const defaultAnswer = "Извините, я не понял команду. Попробуйте сказать 'Включи свет' или 'Столица Украины'.";
+            document.getElementById('output').innerText = defaultAnswer;
+            speak(defaultAnswer);
+        }
+
+        // --- Захват голоса (Speech Recognition) ---
+        document.getElementById('startButton').addEventListener('click', () => {
+            if (!('webkitSpeechRecognition' in window)) {
+                alert('Голосовой ввод не поддерживается в этом браузере.');
+                return;
+            }
+
+            // Используем нативный Web Speech API браузера (который может использовать Google STT)
+            const recognition = new webkitSpeechRecognition();
+            recognition.lang = 'ru-RU'; // Или 'uk-UA'
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
+
+            recognition.onstart = () => {
+                document.getElementById('output').innerText = 'Слушаю...';
+                document.getElementById('startButton').disabled = true;
+            };
+
+            recognition.onresult = (event) => {
+                const command = event.results[0][0].transcript;
+                document.getElementById('output').innerText = `Вы сказали: ${command}`;
+                processVoiceCommand(command);
+            };
+
+            recognition.onend = () => {
+                document.getElementById('startButton').disabled = false;
+            };
+
+            recognition.onerror = (event) => {
+                document.getElementById('output').innerText = `Ошибка распознавания: ${event.error}`;
+                document.getElementById('startButton').disabled = false;
+                speak("Произошла ошибка распознавания голоса.");
+            };
+
+            recognition.start();
+        });
+
+        // Тестовый запуск TTS при загрузке страницы
+        speak("Ассистент загружен. Нажмите кнопку, чтобы начать.");
+
+    </script>
+</body>
+</html>
