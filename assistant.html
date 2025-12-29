@@ -1,90 +1,126 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">  <title>AI-Ассистент</title>
-    <title>AI-Ассистент (Без Сервера)</title>
+    <meta charset="UTF-8">
+    <title>AI-Ассистент Groq</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
 <body>
 
-    <h1>Ваш AI-Помощник</h1>
+    <h1>Ваш AI-Помощник (на Groq)</h1>
     <button id="startButton">Начать Голосовой Ввод</button>
     <p id="output">Готов к приему команд...</p>
 
     <script>
-        // Функция для озвучивания текста
+        // --- 1. Вставьте Ваш Groq API Key и IP-адрес ESP32 ---
+        const GROQ_API_KEY = "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"; // !!! ЗАМЕНИТЕ ЭТО !!!
+        const ESP32_IP = "192.168.1.100"; // IP-адрес Вашего ESP32 в локальной сети
+
+        // Функция для озвучивания текста (TTS)
         function speak(text) {
             if ('speechSynthesis' in window) {
                 const utterance = new SpeechSynthesisUtterance(text);
-                // Настройка голоса (можно выбрать украинский или русский, если доступен)
-                // utterance.lang = 'ru-RU'; 
+                utterance.lang = 'ru-RU'; // Установите нужный язык
                 window.speechSynthesis.speak(utterance);
             } else {
                 console.warn('Text-to-Speech не поддерживается в этом браузере.');
             }
         }
+        
+        // --- 2. Функция для отправки запроса в Groq ---
+        async function getGroqResponse(commandText) {
+            try {
+                const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${GROQ_API_KEY}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        // Используем модель Llama 3 для быстрых ответов
+                        model: "llama3-8b-8192", 
+                        messages: [
+                            // Системная инструкция для получения ответов ИЛИ JSON-команд
+                            {
+                                role: "system",
+                                content: "Ты — Универсальный Ассистент. Если пользователь задает общий вопрос (факты, знания), отвечай кратко и дружелюбно. Если пользователь дает команду управления (например, 'включи свет'), **ВЕРНИ ТОЛЬКО JSON** в формате: {\"command\": \"control_relay\", \"device_id\": [номер реле от 1 до 12], \"action\": \"on\" или \"off\"}. Не добавляй ничего лишнего к JSON."
+                            },
+                            {
+                                role: "user",
+                                content: commandText
+                            }
+                        ],
+                        // Устанавливаем режим JSON, если хотим получить JSON
+                        // response_format: { type: "json_object" } // Пока не используем, чтобы Groq сам выбирал формат
+                    })
+                });
 
-        // --- Заглушки для API (имитация) ---
+                if (!response.ok) {
+                    throw new Error(`Ошибка Groq API: ${response.status}`);
+                }
 
-        // Заглушка функции, которая будет отправлять запрос в Google STT и Groq
-        function processVoiceCommand(commandText) {
-            document.getElementById('output').innerText = `Команда получена: ${commandText}. Обработка...`;
+                const data = await response.json();
+                
+                // Извлекаем чистый текст/JSON из ответа
+                return data.choices[0].message.content.trim();
 
-            // 1. Проверка на команду YouTube Music
-            if (commandText.toLowerCase().includes('включи') && (commandText.toLowerCase().includes('трек') || commandText.toLowerCase().includes('музыку'))) {
-                // В реальном проекте здесь будет вызов YouTube Music Tool или API
-                const trackName = commandText.replace(/включи|трек|музыку|на youtube|на youtube music/gi, '').trim();
-                const response = `Включаю ${trackName} на YouTube Music.`;
+            } catch (error) {
+                console.error("Ошибка при работе с Groq:", error);
+                return `Произошла ошибка при получении ответа от ИИ: ${error.message}.`;
+            }
+        }
+        
+        // --- 3. Основная логика обработки команды ---
+        async function processVoiceCommand(commandText) {
+            document.getElementById('output').innerText = `Команда: ${commandText}. Запрос к Groq...`;
+
+            // --- 3.1. Логика YouTube Music (Заглушка) ---
+            if (commandText.toLowerCase().includes('включи') && commandText.toLowerCase().includes('музыку')) {
+                const trackName = commandText.replace(/включи|трек|музыку/gi, '').trim();
+                const response = `Включаю ${trackName} на YouTube Music (имитация).`;
                 document.getElementById('output').innerText = response;
                 speak(response);
-                // В реальном проекте здесь нужно выполнить вызов youtube_music:play
-                // (Это не сработает в чистом JS, но покажет намерение)
                 return;
             }
 
-            // 2. Проверка на команду Реле (простая заглушка для демонстрации)
-            if (commandText.toLowerCase().includes('включи свет') || commandText.toLowerCase().includes('выключи реле')) {
-                // В реальном проекте Groq вернет JSON, который мы распарсим
-                const groqResponseJSON = {
-                    "device_id": 5, 
-                    "action": "on"
-                }; 
-                
-                // В реальном проекте здесь будет отправка HTTP-запроса на ESP32
-                const esp32IP = "192.168.1.100"; // Замените на IP Вашего ESP32
-                const url = `http://${esp32IP}/control?id=${groqResponseJSON.device_id}&state=${groqResponseJSON.action}`;
-                
-                const response = `Отправляю команду на ESP32 для ${groqResponseJSON.action} реле №${groqResponseJSON.device_id}.`;
-                document.getElementById('output').innerText = response;
-                speak(response);
-                
-                // Fetch(url).then(...).catch(...)
-                return;
-            }
+            // --- 3.2. Общий запрос к Groq ---
+            const groqContent = await getGroqResponse(commandText);
 
-            // 3. Фактический вопрос (имитация Groq ответа)
-            if (commandText.toLowerCase().includes('кто президент') || commandText.toLowerCase().includes('столица')) {
-                // Здесь должен быть реальный вызов Groq API
-                const groqAnswer = "Столица Украины — Киев. Это ответ от Groq."; 
-                document.getElementById('output').innerText = groqAnswer;
-                speak(groqAnswer);
-                return;
-            }
+            // --- 3.3. Проверка ответа Groq на наличие JSON-команды ---
+            try {
+                // Пытаемся распарсить ответ как JSON
+                const jsonCommand = JSON.parse(groqContent);
 
-            // Если не распознано
-            const defaultAnswer = "Извините, я не понял команду. Попробуйте сказать 'Включи свет' или 'Столица Украины'.";
-            document.getElementById('output').innerText = defaultAnswer;
-            speak(defaultAnswer);
+                if (jsonCommand.command === "control_relay" && jsonCommand.device_id) {
+                    // Если это команда управления реле, отправляем HTTP-запрос на ESP32
+                    const url = `http://${ESP32_IP}/control?id=${jsonCommand.device_id}&state=${jsonCommand.action}`;
+                    
+                    document.getElementById('output').innerText = `Команда Реле: ${jsonCommand.action} реле №${jsonCommand.device_id}. Отправка на ${ESP32_IP}...`;
+                    speak(`Выполняю команду ${jsonCommand.action} реле номер ${jsonCommand.device_id}.`);
+                    
+                    // Реальный вызов (пока закомментирован, чтобы не отправлять на несуществующий IP)
+                    // await fetch(url); 
+                } else {
+                    // Если JSON есть, но команда не опознана
+                    document.getElementById('output').innerText = `ИИ вернул неопознанный JSON: ${groqContent}`;
+                    speak("ИИ вернул неизвестную команду.");
+                }
+
+            } catch (e) {
+                // Если не удалось распарсить как JSON, это обычный текстовый ответ
+                document.getElementById('output').innerText = groqContent;
+                speak(groqContent);
+            }
         }
 
-        // --- Захват голоса (Speech Recognition) ---
+        // --- 4. Захват голоса (Speech Recognition) ---
+        // (Оставлено без изменений, так как этот блок уже работает)
         document.getElementById('startButton').addEventListener('click', () => {
             if (!('webkitSpeechRecognition' in window)) {
                 alert('Голосовой ввод не поддерживается в этом браузере.');
                 return;
             }
 
-            // Используем нативный Web Speech API браузера (который может использовать Google STT)
             const recognition = new webkitSpeechRecognition();
             recognition.lang = 'ru-RU'; // Или 'uk-UA'
             recognition.interimResults = false;
@@ -114,8 +150,7 @@
             recognition.start();
         });
 
-        // Тестовый запуск TTS при загрузке страницы
-        speak("Ассистент загружен. Нажмите кнопку, чтобы начать.");
+        speak("Ассистент Groq загружен. Вставьте ключ API.");
 
     </script>
 </body>
